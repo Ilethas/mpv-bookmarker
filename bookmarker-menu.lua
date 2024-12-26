@@ -30,6 +30,7 @@ local active = false
 local mode = "none"
 local bookmarkStore = {}
 local oldSlot = 0
+local defaultChapters = {}
 
 -- // Controls \\ --
 
@@ -476,6 +477,7 @@ end
 
 -- Save the globally loaded bookmarks to the JSON file
 function saveBookmarks()
+  refreshChapters()
   saveTable(bookmarks, getFilepath(bookmarkerName))
 end
 
@@ -592,7 +594,7 @@ function jumpToBookmark(slot)
       if parsePath(mp.get_property("path")) == bookmark["path"] then
         mp.set_property_number("time-pos", bookmark["pos"])
       else
-        mp.commandv("loadfile", parsePath(bookmark["path"]), "replace", "start="..bookmark["pos"])
+        mp.commandv("loadfile", parsePath(bookmark["path"]), "replace", -1, "start="..bookmark["pos"])
       end
       if closeAfterLoad then abort(styleOn.."{\\c&H00FF00&}{\\b1}Successfully found file for bookmark:{\\r}\n"..displayName(bookmark["name"])) end
     else
@@ -706,3 +708,37 @@ end
 mp.register_script_message("bookmarker-menu", handler)
 mp.register_script_message("bookmarker-quick-save", quickSave)
 mp.register_script_message("bookmarker-quick-load", quickLoad)
+
+function deepCopyTable(inputTable)
+  return utils.parse_json(utils.format_json(inputTable)) or {}
+end
+
+-- First, resets chapters to the initial value it has after the file-load event.
+-- Then, for each bookmark pertaining to the current file, creates a new chapter.
+-- After that, the newly constructed chapter-list is set.
+function refreshChapters()
+  local resultChapters = deepCopyTable(defaultChapters)
+
+  for _, bookmark in pairs(bookmarks) do
+    _, filename = utils.split_path(bookmark.path)
+
+    if filename == mp.get_property("filename") then
+      table.insert(resultChapters, {
+        title = bookmark.name,
+        time = bookmark.pos
+      })
+    end
+  end
+  table.sort(resultChapters, function(a, b) return a.time < b.time end)
+
+  mp.set_property_native("chapter-list", resultChapters)
+end
+
+-- Cache the default chapter-list for each media file.
+-- Refresh the chapter-list using bookmarks, if any are present!
+mp.register_event("file-loaded", function()
+  defaultChapters = mp.get_property_native("chapter-list")
+
+  loadBookmarks()
+  refreshChapters()
+end)
